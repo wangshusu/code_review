@@ -1,0 +1,4 @@
+可以使用命令查看 a.out 创建的线程
+	netstat -anp | grep a.out
+可以查看一些信息:
+	ulimited -a

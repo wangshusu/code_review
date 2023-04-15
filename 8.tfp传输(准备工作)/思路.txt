@@ -1,0 +1,171 @@
+#ifndef __FTP_AGREE__
+#define __FTP_AGREE__
+
+
+typedef unsigned char   uint8_t;    /* 无符号8位数据  */
+typedef signed char     int8_t;     /* 有符号8位数据  */
+typedef unsigned short  uint16_t;   /* 无符号16位数据 */
+typedef signed short    int16_t;    /* 有符号16位数据 */
+typedef unsigned int    uint32_t;   /* 无符号32位数据 */
+typedef signed int      int32_t;    /* 有符号32位数据 */
+
+
+typedef struct client_haed // myprot 头文件的大小 = file_haed.file_size + 9 字节
+{
+    2字节 uint16_t magic;  //校对头    0xEB 0x90
+
+    1字节 uint8_t  id;     //客户端发送 1  服务端发送 2
+
+    //客户端
+    1字节 uint8_t  cmdno;  //命令       1.ls 2.get file 3.put file 4.bye
+    
+    //服务端
+    1字节 uint8_t  result; //服务端执行命令是否成功  0失败 1成功
+    1字节 uint8_t  flile;  //文件发送状态  0没有文件 1发送文件 2名单列表(ls专用)
+
+    2字节 uint16_t magic_end;  //校对尾    0xEB 0x90  
+}MyProt_Head;
+
+typedef struct myfile_head //  file头的字节大小 = 12 + file_size 
+{
+    //通用 数据是否传送完毕
+    4字节 uint32_t file_end;// 0没有传完  1传完了
+
+    //命令ls专用
+    4字节 uint32_t file_num;//文件名的个数
+
+	//传文件专用
+    4字节 uint32_t file_size;//数据包里内容的多少
+    ~字节 uint8_t  file_date[1024];//数据正文
+}MyFile_Head;
+
+typedef struct myprotmsg //TCP 数据包头
+{
+    MyProt_Head pag_head;//tcp数据包头
+    MyFile_Head file_haed;//file数据包头
+    
+}MyProtMsg;
+
+//呵呵  鄙人能力不足 结构体对齐玩不明白
+
+----- 1.0版本 TCP -----
+
+1.初始化服务器,通过 argv 进行传入 IP地址 以及 端口号
+
+2.等待连接 连接成功后(开始分配线程)    可以接收字符串
+    接收客户端发来的协议
+    协议分析
+
+3.进行协议相对应的操作
+    返还一个数据包
+
+协议 myprothaed 
+
+
+
+
+//文件接收函数
+//socked:套接字
+//mess:文件名
+void get_file(int sockfd,char * mess)
+{
+	char filename[128] = {0};
+	msg_t msg;                      //用结构体传输--防止TCP 粘包问题
+    memset(&msg, 0, sizeof(msg_t)); //清空
+	//memset(buf,);
+	char *p = &mess[3];
+	strncpy(filename,p,strlen(p));
+	//发--将文件名发给服务器
+	send(sockfd,mess,strlen(mess),0);
+	//收--接收文件是否存在
+	recv(sockfd,&msg,sizeof(msg_t),0);
+
+	//如果文件不存在 重新输入
+	if(0 == strcmp(msg.buff,"文件不存在"))
+	{
+		printf("文件不存在,请重新输入\n");
+		return;
+	}
+	//文件存在 循环接收文件内容 并写入到文件中
+	if(strcmp(msg.buff,"文件存在") == 0)
+	{
+		int dfd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0664);
+		if(dfd == -1)
+		{
+			printf("打开文件失败\n");
+			return;
+		}
+		//循环写入
+		while (0 != recv(sockfd, &msg, sizeof(msg_t), 0))
+		{
+			printf("msg.num = %d\n",msg.num);
+			if (msg.num == 0)
+			{
+				break;					
+			}
+			if(msg.num < 0)
+			{
+				continue;
+			}
+			if (-1 == write(dfd, msg.buff, msg.num))
+			{
+				perror("write error\n");
+			}	
+		}
+		close(dfd);
+	}					
+	printf("文件[%s]下载完成\n", filename);
+}
+
+//文件发送函数
+void put_file(int confd,char *rbuf)
+{
+	unsigned char buff[128] = {0};
+	char filename[128] = {0};
+	msg_t msg;
+	char *p = &rbuf[3];
+	int str = 0;
+	memset(&msg,0,sizeof(msg_t)); //清空
+
+	printf("get\n");
+	//获取要下载的文件名
+	strncpy(filename,p,strlen(p));
+	printf("%s\n",filename);
+	int fd = open(filename,O_RDONLY);
+	if(fd == -1)
+	{
+		strcpy(msg.buff, "文件不存 ?");
+		send(confd, &msg, sizeof(msg_t), 0);
+		memset(&msg,0,sizeof(msg_t)); //清空
+		return;//结束本次，重新发送要传输的文件名
+	}
+	else
+	{
+		strcpy(msg.buff, "文件存在");
+		send(confd, &msg, sizeof(msg_t), 0);
+		memset(&msg,0,sizeof(msg_t)); //清空
+	}
+	//循环发送文件内容
+	while ((str = read(fd, buff, 1024)) > 0)
+	{
+		memset(&msg, 0, sizeof(msg_t));
+		msg.num = str;
+		printf("msg.num == %d\n",msg.num);
+		strcpy(msg.buff, buff);
+		str = send(confd, &msg, sizeof(msg_t), 0);
+		if (0 > str)
+		{
+			perror("send error\n");
+		}
+	}
+	//发送文件结束的标志
+	memset(&msg, 0, sizeof(msg_t));
+	strcpy(msg.buff, "结束");
+	msg.num = 0; //结束的标 ?
+	send(confd, &msg, sizeof(msg_t), 0);
+	close(fd);
+}
+
+
+
+#endif

@@ -1,0 +1,5 @@
+
+struct Task 里面的 void *arg 没有析构函数
+存在很大的危险
+
+任务函数来进行释放, 写入析构函数, 但是尽量不进行 delete void

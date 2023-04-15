@@ -1,0 +1,6 @@
+{
+    "files.associations": {
+        "Program": "cpp",
+        "ctype.h": "c"
+    }
+}
